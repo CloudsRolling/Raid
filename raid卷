@@ -1,0 +1,179 @@
+Raid+ISCSI
+
+
+RAID等级    最少硬盘    最大容错    可用容量     读取性能    写入性能          安全性                  目的              应用产业
+0            2           0           n            n          n          一个硬盘异常，           追求最大容量         3D产业实时渲染、
+                                                                        全部硬盘都会异常          、速度              视频剪接高速缓存 
+  
+1            2          n-1          1            n          1           最高，一个正             追求最大            个人、企业备份
+                                                                            常即可                 安全性
+                                                                            
+5            3           1          n-1           n-1       n-1               高                 追求最大容量         个人、企业备份
+                                                                                                  、最小预算
+                                                                                                  
+10           4          n/2         n/2            n        n/2             安全性高            综合RAID 0/1优点       大型数据库、服务器
+                                                                                                  ，理论速度较快
+
+
+检查磁盘是否处于raid组中。
+# mdadm --examine /dev/sdb /dev/sdc /dev/sdd /dev/sde
+
+
+开始创建RAID0
+# mdadm -C /dev/md0 -ayes -l0 -n2 /dev/sd[b,c]1
+# cat /proc/mdstat
+# mdadm -D /dev/md0
+创建/etc/mdadm.conf
+# echo DEVICE /dev/sd{b,c}1 >> /etc/mdadm.conf
+# mdadm –Ds >> /etc/mdadm.conf
+# cat /etc/mdadm.conf
+DEVICE /dev/sdb1 /dev/sdc1
+ARRAY /dev/md0 level=raid0 num-devices=2 UUID=5160ea40:cb2b44f1:c650d2ef:0db09fd0
+
+
+开始创建RAID1
+# mdadm -C /dev/md1 -ayes -l1 -n2 /dev/sd[d,e]1
+添加raid1 到RAID 配置文件/etc/mdadm.conf 并修改
+# echo DEVICE /dev/sd{b,c}1 >> /etc/mdadm.conf
+# mdadm –Ds >> /etc/mdadm.conf
+
+
+开始创建RAID5
+# mdadm -C /dev/md5 -ayes -l5 –n3 -x1 /dev/sd[f,g,h,i]1
+添加raid5 到RAID配置文件/etc/mdadm.conf 并修改
+# echo DEVICE /dev/sd{f,g,h,i}1 >> /etc/mdadm.conf
+# mdadm –Ds >> /etc/mdadm.conf
+# mdadm /dev/md5 -a /dev/sdh1 #增加一块备份盘
+# mdadm -G /dev/md5 -n4 #将备份盘转为数据盘
+注：扩容后增加文件系统
+# resize2fs /dev/md5
+修改RAID 配置文件/etc/mdadm.conf
+
+
+创建raid10
+# mdadm -C /dev/md1 -ayes -l1 -n2 /dev/sd[c-d]1
+# mdadm -C /dev/md1 -ayes -l1 -n2 /dev/sd[e-f]1
+# cat /proc/mdstat
+# mdadm -C /dev/md10 -ayes -l0 -n2 /dev/md1 /dev/md2
+
+
+创建raid6
+# mdadm -C /dev/md1 -ayes -l1 -n2 /dev/sd[b-e]1
+# mdadm --add /dev/md0 /dev/sdf1 #增加备份盘
+mdadm --create --auto=yes /dev/md0 --level=5 --raid-devices=4 --spare-devices=1 /dev/sd[b-f]
+
+
+参数说明：
+--create //表示要创建raid
+--auto=yes /dev/md0 //新建立的软件磁盘阵列设备为md0，md序号可以为0-9
+--level=5 //磁盘阵列的等级，这里表示创建是的raid5
+--raid-devices //添加作为磁盘阵列用的磁盘的块数
+--spare-devices //添加作为预备（spare）磁盘的块数
+/dev/sd[b-f] //磁盘阵列所使用的设备，还可写成 /dev/sdb /dev/sdc /dev/sdd /dev/sde /dev/sdf
+mdadm -C /dev/md0 -a yes -l5 -n4 -x1 /dev/sd[b-f] #此为上面命令的另一种写法。四块硬盘创建raid5
+cat /proc/mdstat #查看创建进程
+mdadm --detail /dev/md0 #查看详细信息
+mdadm -Q /dev/md0 #查看整体概要信息
+mkfs.ext4 /dev/md0 #创建文件系统
+mkdir /mnt/raid5 #创建挂载点
+mount /dev/md0 /mnt/raid5/ #挂载验证文件系统
+mdadm --detail --scan >> /etc/mdadm.conf #提取UUID和配置文件内容
+vim /etc/mdadm.conf #必须这么改，否则md0重启后变为md127
+ARRAY /dev/md/md0 metadata=1.2 spares=1 name=localhost.localdomain:0 UUID=81ab08a0:3af1700c:5bdd7f83:bf542889
+vim /etc/fstab #修改自动挂载
+mdadm --add /dev/md0 /dev/sdg
+mdadm --manage /dev/md0 --add /dev/sdg #增加新硬盘
+mdadm --grow /dev/md0 -n5 #增加新硬盘到raid5中
+cat /proc/mdstat #查看新增硬盘sdg
+resize2fs -f /dev/md0 #重新调整文件系统的大小
+df -Th #查看当前硬盘大小状态
+mdadm --manage /dev/md0 --fail /dev/sdd #模拟硬盘失效
+mdadm --detail /dev/md0 #查看raid5重建过程。
+cat /proc/mdstat #查看raid5重建过过程
+ls /mnt/raid5/ #差可能raid5仍然可用
+mdadm --manage /dev/md0 --remove /dev/sdd #移除损坏的硬盘
+mdadm --manage /dev/md0 --add /dev/sdg #增新的硬盘
+mdadm --detail /dev/md0 #查看raid5目前状态
+
+
+
+----------------关闭raid----------------------
+umount /dev/md0
+vim /etc/fstab #注释自动挂在
+vim /etc/mdadm.conf #注释配置文件
+mdadm --stop /dev/md0 #停止raid
+mdadm --misc --zero-superblock /dev/sd[b-f] #释放raid内硬盘
+RAID0 和 RAID1实同于RAID5
+RAID0：并行读写数据
+RAID1：镜像磁盘
+
+
+****************ISCSI存储服务器*****************
+服务端：底层LVM+ISCSI服务
+客户端：ISCSI登录+LVM
+服务端：
+yum install scsi-target-utils -y
+fdisk -l
+fdisk -cu /dev/sdb
+partx -a /dev/sdb
+pvcreate /dev/sdb1 /dev/sdb2
+pvdisplay
+pvs
+vgcreate vg00 /dev/sdb1
+vgdisplay
+vgs
+lvcreate -L 500M -n lv00 vg00
+lvdisplay
+lvs
+yum install iscsi* -y
+yum install perl* -y
+vim /etc/tgt/targets.conf
+<target iqn.2016-08.com.example:lv00>
+backing-store /dev/vg00/lv00
+initiator-address 192.168.56.201
+</target>
+注：
+Target
+的命名在同一子网内应该是唯一的，标准命名方式为：
+iqn.yyyy-mm.<reversed domain name>[:identifier]
+其中：iqn：表示“iSCSI Qualified Name”，简称iqn。
+yyyy-mm：表示年份-月份。这里是2011-08。
+reversed domain name：表示倒过来的域名，这里是com.example。
+identifier：表示识别代码，这里是disk
+backing-store用于指定存储设备，一般指非实际的物理磁盘，如LVM卷、某个分区、raid磁盘阵列。
+initiator-address 地址 用于将target指派给指定的客户机使用。
+/etc/init.d/tgtd start
+netstat -anput | grep 3260
+iptables -F
+/etc/init.d/iptables save
+tgtadm --lld iscsi --op show --mode target
+使用tgtadm工具创建ISCSI对象时，主要命令选项如下所述：
+-L，--lld：指定驱动类型，如“-L iscsi”表示ISCSI存储。
+-o，--op：指定操作类型，如“-o new”表示创建，“-o delete”表示删除，“-o show”表示查看信息。
+-m，--mode：指定管理目标，如“-m target”表示ISCSI对象。
+-t，--tid：指定对象ID号，如“-t 1”表示第一个对象。
+-T,--targetname：指定ISCSI对象的名称。
+
+
+客户端：
+yum install iscsi-initiator-utils lsscsi -y
+/etc/init.d/iscsi start
+iscsiadm -m discovery -t st -p 192.168.56.200
+iscsiadm -m node -T iqn.2016-08.com.example:lv00 -p 192.168.56.200 -l
+ll /dev/disk/by-path/
+/etc/init.d/iscsi status
+dmesg | tail
+开机自动登录
+# iscsiadm -m node –T iqn.1997-05.com.test:raid -p 192.168.1.1:3260 --op update -n node.startup -v
+automatic
+fdisk -cu /dev/sdb
+partx -a /dev/sdb
+pvcreate /dev/sdb1
+vgcreate vg-data /dev/sdb1
+lvcreate -L 200M -n lv-data vg-data
+mkfs.ext4 /dev/vg-data/lv-data
+mount /dev/vg-data/lv-data /data/
+df -Th
+echo "it is a test file" >> /data/test.txt
+blkid
+vim /etc/fstab
