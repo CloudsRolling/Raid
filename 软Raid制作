@@ -1,0 +1,94 @@
+
+以raid5为例：
+
+1、添加4块磁盘
+要求：容量、转速、接口一样的硬盘。
+
+2、创建分区并修改ID
+[root@localhost ~]# fdisk /dev/sdb
+[root@localhost ~]# fdisk /dev/sdc
+[root@localhost ~]# fdisk /dev/sdd
+[root@localhost ~]# fdisk /dev/sde
+注意：修改ID为fd(支持raid)
+Device Boot        Start           End           Blocks           Id                 System
+/dev/sdb1             1             652           5237245+         fd                 Linux  Raid   autodetect
+/dev/sdc1             1             652           4563889+         fd                 Linux  Raid   autodetect
+/dev/sdd1             1             652           1254356+         fd                 Linux  Raid   autodetect
+/dev/sde1             1             652           7034359+         fd                 Linux  Raid   autodetect
+
+3、创建Raid5
+[root@localhost ~]# mdadm --version
+[root@localhost ~]# mdadm -V
+[root@localhost ~]# cat /proc/devices | grep md
+[root@localhost ~]# ls /dev/md*                           #查看软阵列（software RAID）的设备文件名
+[root@localhost ~]# mdadm -C[创建] /dev/md0[Raid5的名称] -l5[RAID的级别] -n3[活跃的设备块数] -x1[热备的设备块数] /dev/sdb1 /dev/sdc1 /dev/sdd1 /dev/sde1 
+[root@localhost ~]# cat /proc/mdstat 
+[root@localhost ~]# mdadm –Ds
+[root@localhost ~]# mkfs -t ext3 /dev/md0                 #格式化设备md0
+[root@localhost ~]# mkdir /md0
+[root@localhost ~]# mount /dev/md0 /md0/                #挂载使用
+[root@localhost ~]#df -hT                               #查看可用空间
+[root@localhost ~]#mdadm -Ds > /etc/mdadm.conf          #生成磁盘阵列配置文件
+
+4、修复Raid5磁盘阵列
+[root@localhost ~]# mdadm -Ds /dev/md0                  #查看指定的设备  ：此命令可以查看活跃设备和热备设备。
+
+
+[root@localhost ~]#mdadm -f /dev/md0 /dev/sdc1          #标识 sdc1设备已坏
+[root@localhost ~]#mdadm -Ds /dev/md0 
+[root@localhost ~]#mdadm -r /dev/md0 /dev/sdc1          #移除已坏设备sdc1
+[root@localhost ~]#mdadm -Ds /dev/md0 
+[root@localhost ~]#mdadm -a /dev/md0 /dev/sdc1          #sdc1设备修好以后，添加到md0中，作为热备设备。
+
+默认情况下，系统中只有/dev/md0这个块设备文件。如果还需要其他的raid的话，那么就需要手动创建了。如下：
+[root@localhost ~]# mknod  /dev/md1[创建md1块设备文件，]  b[表示块设备]  9[主设备号，9表示磁盘阵列，主设备号不能修改。]  1[1代表从设备号，从设备号在系统内唯一。]
+[root@localhost ~]# vim /etc/rc.local
+添加：mknod  /dev/md1 b 9 1      # dev/md1文件在系统重启之后就丢失，为了能够在系统启动时自动产生，在rc.local文件里添加mknod  /dev/md1 b 9 1命令。]
+
+[root@localhost ~]# ls /dev/md*
+[root@localhost ~]# mknod  /dev/md1 b 9 1
+[root@localhost ~]# mknod  /dev/md2 b 9 2
+[root@localhost ~]# mknod  /dev/md3 b 9 3
+
+[root@localhost ~]# ls /dev/md*
+其他：
+mdadm使用选项：
+--create(或其缩写-C)参数来创建新的陈列并且将一些重要阵列的标识信息作为元数据可以写在每一个底层设备的指定区间
+--level(或者其缩写-l)表示阵列的RAID级别
+--chunk(或者其缩写-c)表示每个条带单元的大小，以KB为单位，默认为64KB，条带单元的大小配置对不同负载下的阵列读写性能有很大影响
+--raid-devices(或者其缩写-n)表示阵列中活跃的设备个数
+--spare-devices(或者其缩写-x)表示阵列中热备盘的个数，一旦阵列中的某个磁盘失效，MD内核驱动程序自动用将热备磁盘加入到阵列，然后重构丢失磁盘上的数据到热备磁盘上。
+
+创建一个RAID 0设备：
+mdadm --create /dev/md0 --level=0 --chunk=32 --raid-devices=3 /dev/sdb1 /dev/sdc1 /dev/sdd1 
+
+创建一个raid 1设备：
+mdadm --create /dev/md0 --level=1 --chunk=128 --raid-devices=2 --spare-devices=1 /dev/sdb1 /dev/sdc1 /dev/sdd1
+
+创建一个RAID5设备：
+mdadm --create /dev/md0 --level=5 --raid-devices=5 /dev/sd[c-g]1 --spare-devices=1 /dev/sdb1
+
+创建一个RAID 10设备：
+mdadm -C /dev/md0 -l10 -n6 /dev/sd[b-g] -x1 /dev/sdh
+
+创建一个RAID1+0设备：
+mdadm -C /dev/md0 -l1 -n2 /dev/sdb /dev/sdc
+mdadm -C /dev/md1 -l1 -n2 /dev/sdd /dev/sde
+mdadm -C /dev/md2 -l1 -n2 /dev/sdf /dev/sdg
+mdadm -C /dev/md3 -l0 -n3 /dev/md0 /dev/md1 /dev/md2
+
+要停止一个阵列设备 类如显示array is started 要先停止此设备 先卸载
+Umount  /dev/md0 然后  mdadm –S /dev/md0
+
+、清除成员磁盘当中阵列的超级块信息，这一步很重要！
+[root@linux02 ~]# mdadm --zero-superblock /dev/sdb[1-3,5]
+
+、删除或注释/etc/fstab上的挂载信息
+[rootlinux02 ~]# vim /etc/fstab 
+#UUID=796a27da-d899-4e64-a3bd-b468fb0c4f37      /mnt/raid5            ext4    defaults       0     0
+
+、删除或注释/etc/mdadm.conf对应的RAID信息：
+[root@linux02 ~]# vim /etc/mdadm.conf
+#ARRAY /dev/md0 metadata=1.2 spares=1 name=kashu.localdomain:0 UUID=3895d28e:bdcaed28:136b4cf6:d2a858f5
+
+、如果做完上面所有的操作后，发现/dev/下还有md0这个设备文件存在，直接rm -f /dev/md0即可
