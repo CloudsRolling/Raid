@@ -1,0 +1,52 @@
+
+=====创建Raid50的步骤======
+
+1、创建分区
+[root@localhost ~]# fdisk /dev/sdb
+[root@localhost ~]# fdisk /dev/sdc
+[root@localhost ~]# fdisk /dev/sdd
+[root@localhost ~]# fdisk /dev/sde
+[root@localhost ~]# fdisk /dev/sdf
+[root@localhost ~]# fdisk /dev/sdg
+[root@localhost ~]# fdisk /dev/sdh
+[root@localhost ~]# fdisk /dev/sdi
+
+2、查看Raid的版本以及帮助
+[root@localhost ~]# mdadm --verson
+[root@localhost ~]# mdadm -V
+[root@localhost ~]# mdadm --help
+
+3、查看系统是否支持Raid
+[root@localhost ~]# cat /proc/devices 
+[root@localhost ~]# cat /proc/devices | grep md
+[root@localhost ~]# ls /dev/md*
+
+4、创建Raid5
+[root@localhost ~]# mdadm -C /dev/md0 -l5 -n3 -x1 /dev/sdb1 /dev/sdc1 /dev/sdd1 /dev/sde1
+
+[root@localhost ~]# mdadm -C /dev/md1 -l5 -n3 -x1 /dev/sdf1 /dev/sdg1 /dev/sdh1 /dev/sdi1 
+5、查看Raid5
+[root@localhost ~]# ls /dev/md*
+[root@localhost ~]# mdadm -Ds
+[root@localhost ~]# mdadm -Ds /dev/md0
+[root@localhost ~]# mdadm -Ds /dev/md1
+
+6、格式化Raid5（此步骤可省略）
+注意：可使用Raid5
+[root@localhost ~]# mkfs -t ext4 /dev/md0
+[root@localhost ~]# mkfs -t ext4 /dev/md1
+
+7、创建Raid50
+原理：将2个Raid5生成1个Raid0
+[root@localhost ~]# mdadm -C /dev/md2 -l0 -n2 /dev/md0 /dev/md1 
+[root@localhost ~]# ls /dev/md*
+
+8、格式化Raid50
+[root@localhost ~]# mkfs -t ext4 /dev/md2
+
+9、挂载使用
+[root@localhost ~]# mkdir /www
+[root@localhost ~]# mount  /dev/md2 /www/
+[root@localhost ~]# df -hT 
+
+ 
